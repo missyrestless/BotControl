@@ -357,14 +357,15 @@ list_supported_actions() {
   printf "\nSupported actions common to both Corrade and LifeBots:"
   printf "\n  activate_group, attachments, avatar_picks, get_balance, get_outfit, get_outfits, give_inventory,"
   printf "\n  give_object, give_money, give_money_object, im, key2name, listinventory, login, logout,"
-  printf "\n  name2key, notecard_create, rebake, say_chat_channel, send_group_im, send_notice,"
+  printf "\n  name2key, notecard_create, rebake, relax, say_chat_channel, send_group_im, send_notice,"
   printf "\n  set_hoverheight, sit, stand, status, takeoff, teleport, touch_prim, walkto, wear, wear_outfit"
   printf "\nSupported actions for LifeBots only:"
   printf "\n  bot_location, reply_dialog, touch_attachment"
   printf "\nSupported actions for Corrade only:"
-  printf "\n  attach, conference, conference_detail, conference_list, createlandmark, currentsim, detach"
-  printf "\n  fly, flyto, getattachmentspath, getavatarpickdata, getgroupmemberdata, get_hoverheight,"
-  printf "\n  getmembersonline, getregiontop, getselfdata, inventory cwd, key2displayname, networkmanagerdata\n"
+  printf "\n  anim_start, anim_stop, attach, conference, conference_detail, conference_list, createlandmark,"
+  printf "\n  currentsim, detach, fly, flyto, gesture, getattachmentspath, getavatarpickdata, getgroupmemberdata,"
+  printf "\n  get_hoverheight, getmembersonline, getregiontop, getselfdata, inventory cwd, key2displayname,"
+  printf "\n  networkmanagerdata, playsound\n"
 }
 
 get_coords() {
@@ -458,6 +459,20 @@ send_corrade_request() {
     activate|activate_group)
       COMMAND="\"command\": \"activate\", \"target\": \"${GROUP_ID}\""
       ;;
+    anim*start*)
+      [ "${UUID}" ] || {
+        erro "The ${cmd} action requires an inventory item UUID specified with -u UUID"
+        usage brief
+      }
+      COMMAND="\"command\": \"animation\", \"type\": \"UUID\", \"action\": \"start\", \"item\": \"${UUID}\""
+      ;;
+    anim*stop*)
+      [ "${UUID}" ] || {
+        erro "The ${cmd} action requires an inventory item UUID specified with -u UUID"
+        usage brief
+      }
+      COMMAND="\"command\": \"animation\", \"type\": \"UUID\", \"action\": \"stop\", \"item\": \"${UUID}\""
+      ;;
     attach|detach)
       [ "${UUID}" ] || {
         erro "The ${cmd} action requires an inventory item UUID specified with -u UUID"
@@ -531,6 +546,9 @@ send_corrade_request() {
       local comm="getattachments"
       echo "${cmd}" | grep attachmentspath >/dev/null && comm="getattachmentspath"
       COMMAND="\"command\": \"${comm}\""
+      ;;
+    *gesture*)
+      COMMAND="\"command\": \"playgesture\", \"item\": \"${UUID}\""
       ;;
     get_balance|getbalance|balance)
       COMMAND="\"command\": \"getbalance\""
@@ -623,6 +641,9 @@ send_corrade_request() {
         COMMAND="\"command\": \"touch\", \"item\": \"${cuuid}\", \"range\": \"${CORRADE_RANGE}\""
       fi
       ;;
+    relax)
+      COMMAND="\"command\": \"relax\", \"deanimate\": \"True\""
+      ;;
     stand)
       COMMAND="\"command\": \"stand\", \"deanimate\": \"True\""
       ;;
@@ -657,6 +678,9 @@ send_corrade_request() {
         usage brief
       }
       COMMAND="\"command\": \"getnetworkdata\", \"data\": \"${DATA}\""
+      ;;
+    *sound*)
+      COMMAND="\"command\": \"playsound\", \"item\": \"${UUID}\""
       ;;
     teleport)
       POS=$(get_coords "${LOCATION}")
@@ -745,13 +769,26 @@ send_lifebot_request() {
     erro "Empty action. Exiting."
     usage
   }
+  [ "${act}" == "relax" ] && {
+    act="sit"
+    UUID="GROUND"
+  }
   COMMON="\"action\": \"${act}\", \
           \"apikey\": \"${LB_API_KEY}\", \
           \"botname\": \"${BE_BOT_NAME}\", \
           \"secret\": \"${LB_SECRET}\", \
           \"dataType\": \"json\""
+# Example
+# {
+#   "action": "sit",
+#   "apikey": "your-api-key",
+#   "botname": "Joe Resident",
+#   "secret": "bot-secret-123",
+#   "uuid": "GROUND",
+#   "save": "1"
+# }
   case "${act}" in
-    listinventory|sit|touch_attachment|touch_prim)
+    listinventory|sit|relax|touch_attachment|touch_prim)
       if [ "${dryrun}" ]; then
         if [ "${UUID}" ]; then
           echo "curl ${verb} -X POST ${ENDPOINT} \
@@ -1785,11 +1822,19 @@ case "${ACTION}" in
       send_request "avatar_picks"
     fi
     ;;
+  relax)
+    send_request "stand" >/dev/null 2>&1
+    if [ "${have_jq}" ]; then
+      send_request "${ACTION}" | jq -r .
+    else
+      send_request "${ACTION}"
+    fi
+    ;;
   stand)
     if [ "${have_jq}" ]; then
-      send_request "stand" | jq -r .
+      send_request "${ACTION}" | jq -r .
     else
-      send_request "stand"
+      send_request "${ACTION}"
     fi
     ;;
   status)
@@ -1862,6 +1907,28 @@ case "${ACTION}" in
       send_request "attachments" | jq -r .
     else
       send_request "attachments"
+    fi
+    ;;
+  anim*start*|anim*stop*)
+    [ "${UUID}" ] || {
+      erro "The animation action requires a UUID specified with -u uuid"
+      usage brief
+    }
+    if [ "${have_jq}" ]; then
+      send_request "${ACTION}" | jq -r .
+    else
+      send_request "${ACTION}"
+    fi
+    ;;
+  *gesture*|*sound*)
+    [ "${UUID}" ] || {
+      erro "The ${ACTION} action requires a UUID specified with -u uuid"
+      usage brief
+    }
+    if [ "${have_jq}" ]; then
+      send_request "${ACTION}" | jq -r .
+    else
+      send_request "${ACTION}"
     fi
     ;;
   *)
